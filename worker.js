@@ -4557,7 +4557,7 @@ var require_buffer = __commonJS({
 // src/worker.ts
 init_modules_watch_stub();
 
-// src/vl.ts
+// src/vless.ts
 init_modules_watch_stub();
 import { connect } from "cloudflare:sockets";
 
@@ -4865,7 +4865,7 @@ function IsIp(str2) {
 function IsValidUUID(uuid) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(uuid);
 }
-function GetCVLeeConfig(no, uuid, sni, address, port) {
+function GetVLConfig(no, uuid, sni, address, port) {
   if (address.toLowerCase() == sni.toLowerCase()) {
     address = sni;
   }
@@ -4883,7 +4883,7 @@ function GetCVLeeConfig(no, uuid, sni, address, port) {
     address
   };
 }
-function GetCTLeeConfig(no, sha224Password, sni, address, port) {
+function GetTRConfig(no, sha224Password, sni, address, port) {
   if (address.toLowerCase() == sni.toLowerCase()) {
     address = sni;
   }
@@ -4956,14 +4956,14 @@ var proxyList = [];
 var blockPorn = "";
 var filterCountries = "";
 var countries = [];
-async function GetCVLeeConfigList(sni, addressList, start, max, env) {
+async function GetVLConfigList(sni, addressList, start, max, env) {
   filterCountries = "";
   blockPorn = "";
   proxyList = [];
   const uuid = getUUID(sni);
   let configList = [];
   for (let i = 0; i < max; i++) {
-    configList.push(GetCVLeeConfig(
+    configList.push(GetVLConfig(
       i + start,
       uuid,
       MuddleDomain(sni),
@@ -4973,7 +4973,7 @@ async function GetCVLeeConfigList(sni, addressList, start, max, env) {
   }
   return configList;
 }
-async function CVLeeOverWSHandler(request, sni, env) {
+async function VLOverWSHandler(request, sni, env) {
   const uuid = getUUID(sni);
   const [client, webSocket] = Object.values(new WebSocketPair());
   webSocket.accept();
@@ -5003,10 +5003,10 @@ async function CVLeeOverWSHandler(request, sni, env) {
         addressType,
         portRemote = 443,
         rawDataIndex,
-        CVLeeVersion = new Uint8Array([0, 0]),
+        vlVersion = new Uint8Array([0, 0]),
         isUDP,
         isMUX
-      } = ProcessCVLeeHeader(chunk, uuid);
+      } = ProcessVLHeader(chunk, uuid);
       address = addressRemote;
       if (hasError) {
         throw new Error(message);
@@ -5020,15 +5020,15 @@ async function CVLeeOverWSHandler(request, sni, env) {
       } else if (isMUX) {
         throw new Error("MUX is not supported!");
       }
-      const CVLeeResponseHeader = new Uint8Array([CVLeeVersion[0], 0]);
+      const vlResponseHeader = new Uint8Array([vlVersion[0], 0]);
       const rawClientData = chunk.slice(rawDataIndex);
       if (isDns) {
-        const { write } = await HandleUDPOutbound(webSocket, CVLeeResponseHeader, env);
+        const { write } = await HandleUDPOutbound(webSocket, vlResponseHeader, env);
         udpStreamWrite = write;
         udpStreamWrite(rawClientData);
         return;
       }
-      HandleTCPOutbound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, CVLeeResponseHeader, env);
+      HandleTCPOutbound(remoteSocketWapper, addressRemote, portRemote, rawClientData, webSocket, vlResponseHeader, env);
     }
   })).catch((err) => {
   });
@@ -5075,18 +5075,18 @@ function MakeReadableWebSocketStream(webSocketServer, earlyDataHeader) {
   });
   return stream;
 }
-function ProcessCVLeeHeader(CVLeeBuffer, uuid) {
-  if (CVLeeBuffer.byteLength < 24) {
+function ProcessVLHeader(vlBuffer, uuid) {
+  if (vlBuffer.byteLength < 24) {
     return {
       hasError: true,
       message: "Invalid data"
     };
   }
-  const version2 = new Uint8Array(CVLeeBuffer.slice(0, 1));
+  const version2 = new Uint8Array(vlBuffer.slice(0, 1));
   let isValidUser = false;
   let isUDP = false;
   let isMUX = false;
-  if (Stringify(new Uint8Array(CVLeeBuffer.slice(1, 17))) === uuid) {
+  if (Stringify(new Uint8Array(vlBuffer.slice(1, 17))) === uuid) {
     isValidUser = true;
   }
   if (!isValidUser) {
@@ -5095,9 +5095,9 @@ function ProcessCVLeeHeader(CVLeeBuffer, uuid) {
       message: "Invalid user"
     };
   }
-  const optLength = new Uint8Array(CVLeeBuffer.slice(17, 18))[0];
+  const optLength = new Uint8Array(vlBuffer.slice(17, 18))[0];
   const command = new Uint8Array(
-    CVLeeBuffer.slice(18 + optLength, 18 + optLength + 1)
+    vlBuffer.slice(18 + optLength, 18 + optLength + 1)
   )[0];
   if (command === 1) {
   } else if (command === 2) {
@@ -5111,11 +5111,11 @@ function ProcessCVLeeHeader(CVLeeBuffer, uuid) {
     };
   }
   const portIndex = 18 + optLength + 1;
-  const portBuffer = CVLeeBuffer.slice(portIndex, portIndex + 2);
+  const portBuffer = vlBuffer.slice(portIndex, portIndex + 2);
   const portRemote = new DataView(portBuffer).getUint16(0);
   let addressIndex = portIndex + 2;
   const addressBuffer = new Uint8Array(
-    CVLeeBuffer.slice(addressIndex, addressIndex + 1)
+    vlBuffer.slice(addressIndex, addressIndex + 1)
   );
   const addressType = addressBuffer[0];
   let addressLength = 0;
@@ -5125,22 +5125,22 @@ function ProcessCVLeeHeader(CVLeeBuffer, uuid) {
     case 1:
       addressLength = 4;
       addressValue = new Uint8Array(
-        CVLeeBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
+        vlBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
       ).join(".");
       break;
     case 2:
       addressLength = new Uint8Array(
-        CVLeeBuffer.slice(addressValueIndex, addressValueIndex + 1)
+        vlBuffer.slice(addressValueIndex, addressValueIndex + 1)
       )[0];
       addressValueIndex += 1;
       addressValue = new TextDecoder().decode(
-        CVLeeBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
+        vlBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
       );
       break;
     case 3:
       addressLength = 16;
       const dataView = new DataView(
-        CVLeeBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
+        vlBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
       );
       const ipv6 = [];
       for (let i = 0; i < 8; i++) {
@@ -5166,13 +5166,13 @@ function ProcessCVLeeHeader(CVLeeBuffer, uuid) {
     addressType,
     portRemote,
     rawDataIndex: addressValueIndex + addressLength,
-    CVLeeVersion: version2,
+    vlVersion: version2,
     isUDP,
     isMUX
   };
 }
-async function HandleUDPOutbound(webSocket, CVLeeResponseHeader, env) {
-  let isCVLeeHeaderSent = false;
+async function HandleUDPOutbound(webSocket, vlResponseHeader, env) {
+  let isVLHeaderSent = false;
   const transformStream = new TransformStream({
     transform(chunk, controller) {
       for (let index = 0; index < chunk.byteLength; ) {
@@ -5202,11 +5202,11 @@ async function HandleUDPOutbound(webSocket, CVLeeResponseHeader, env) {
       const udpSize = dnsQueryResult.byteLength;
       const udpSizeBuffer = new Uint8Array([udpSize >> 8 & 255, udpSize & 255]);
       if (webSocket.readyState === WS_READY_STATE_OPEN) {
-        if (isCVLeeHeaderSent) {
+        if (isVLHeaderSent) {
           webSocket.send(await new Blob([udpSizeBuffer, dnsQueryResult]).arrayBuffer());
         } else {
-          webSocket.send(await new Blob([CVLeeResponseHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
-          isCVLeeHeaderSent = true;
+          webSocket.send(await new Blob([vlResponseHeader, udpSizeBuffer, dnsQueryResult]).arrayBuffer());
+          isVLHeaderSent = true;
         }
       }
     }
@@ -5219,7 +5219,7 @@ async function HandleUDPOutbound(webSocket, CVLeeResponseHeader, env) {
     }
   };
 }
-async function HandleTCPOutbound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, CVLeeResponseHeader, env) {
+async function HandleTCPOutbound(remoteSocket, addressRemote, portRemote, rawClientData, webSocket, vlResponseHeader, env) {
   const maxRetryCount = 5;
   let retryCount = 0;
   async function connectAndWrite(address, port) {
@@ -5260,14 +5260,14 @@ async function HandleTCPOutbound(remoteSocket, addressRemote, portRemote, rawCli
     if (proxyList.length > 0) {
       proxyIP = proxyList[Math.floor(Math.random() * proxyList.length)];
       const tcpSocket2 = await connectAndWrite(proxyIP, portRemote);
-      RemoteSocketToWS(tcpSocket2, webSocket, CVLeeResponseHeader, retry);
+      RemoteSocketToWS(tcpSocket2, webSocket, vlResponseHeader, retry);
     }
   }
   const tcpSocket = await connectAndWrite(addressRemote, portRemote);
-  RemoteSocketToWS(tcpSocket, webSocket, CVLeeResponseHeader, retry);
+  RemoteSocketToWS(tcpSocket, webSocket, vlResponseHeader, retry);
 }
-async function RemoteSocketToWS(remoteSocket, webSocket, CVLeeResponseHeader, retry) {
-  let CVLeeHeader = CVLeeResponseHeader;
+async function RemoteSocketToWS(remoteSocket, webSocket, vlResponseHeader, retry) {
+  let vlHeader = vlResponseHeader;
   let hasIncomingData = false;
   await remoteSocket.readable.pipeTo(
     new WritableStream({
@@ -5277,9 +5277,9 @@ async function RemoteSocketToWS(remoteSocket, webSocket, CVLeeResponseHeader, re
           if (webSocket.readyState !== WS_READY_STATE_OPEN) {
             controller.error("webSocket.readyState is not open, maybe close");
           }
-          if (CVLeeHeader) {
-            webSocket.send(await new Blob([CVLeeHeader, chunk]).arrayBuffer());
-            CVLeeHeader = null;
+          if (vlHeader) {
+            webSocket.send(await new Blob([vlHeader, chunk]).arrayBuffer());
+            vlHeader = null;
           } else {
             webSocket.send(chunk);
           }
@@ -5326,12 +5326,12 @@ function Base64ToArrayBuffer(base64Str) {
     };
   }
 }
-function IsValidCVLeeUUID(uuid) {
+function IsValidVLUUID(uuid) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid);
 }
 function Stringify(arr, offset = 0) {
   const uuid = UnsafeStringify(arr, offset);
-  if (!IsValidCVLeeUUID(uuid)) {
+  if (!IsValidVLUUID(uuid)) {
     throw TypeError("Stringified UUID is invalid");
   }
   return uuid;
@@ -5353,12 +5353,12 @@ var proxyIP2 = "";
 var proxyList2 = [];
 var filterCountries2 = "";
 var countries2 = [];
-async function GetCTLeeConfigList(sni, addressList, start, max, env) {
+async function GetTRConfigList(sni, addressList, start, max, env) {
   filterCountries2 = "";
   proxyList2 = [];
   let configList = [];
   for (let i = 0; i < max; i++) {
-    configList.push(GetCTLeeConfig(
+    configList.push(GetTRConfig(
       i + start,
       getUUID(sni),
       MuddleDomain(sni),
@@ -5368,7 +5368,7 @@ async function GetCTLeeConfigList(sni, addressList, start, max, env) {
   }
   return configList;
 }
-async function CTLeeOverWSHandler(request, sni, env) {
+async function TROverWSHandler(request, sni, env) {
   const sha224Password = getSHA224Password(getUUID(sni));
   const [client, webSocket] = Object.values(new WebSocketPair());
   webSocket.accept();
@@ -5392,7 +5392,7 @@ async function CTLeeOverWSHandler(request, sni, env) {
         portRemote = 443,
         addressRemote = "",
         rawClientData
-      } = await ParseCTLeeHeader(chunk, sha224Password);
+      } = await ParseTRHeader(chunk, sha224Password);
       address = addressRemote;
       if (hasError) {
         throw new Error(message);
@@ -5406,7 +5406,7 @@ async function CTLeeOverWSHandler(request, sni, env) {
     webSocket: client
   });
 }
-async function ParseCTLeeHeader(buffer, sha224Password) {
+async function ParseTRHeader(buffer, sha224Password) {
   if (buffer.byteLength < 56) {
     return {
       hasError: true,
@@ -6052,7 +6052,7 @@ async function GetPanel(request, env) {
             </svg>
             <a class="link-dark link-offset-2" href="https://github.com/iErfun/vFarid-EN" target="_blank">vFarid-EN</a></p>
                 
-            <a>vFarid-EN v1.0.0</a></br>
+            <a>vFarid-EN v1.0.1</a></br>
           </div>
         </div>
       </div>
@@ -6125,7 +6125,7 @@ async function GetPanel(request, env) {
                 </svg>
                 <a class="link-dark link-offset-2" href="https://github.com/iErfun/vFarid-EN" target="_blank">vFarid-EN</a></p>
                 
-                <a>vFarid-EN v1.0.0</a></br>
+                <a>vFarid-EN v1.0.1</a></br>
               </div>
             </div>
           </div>
@@ -9326,18 +9326,18 @@ async function GetConfigList(url, env) {
     );
   }
   finalConfigList = RemoveDuplicateConfigs(finalConfigList.filter(ValidateConfig));
-  let CVLeeConfigList = [];
-  let CTLeeConfigList = [];
+  let vlConfigList = [];
+  let trConfigList = [];
   let startNo = 1;
   if (protocols.includes("built-in-vless")) {
-    CVLeeConfigList = await GetCVLeeConfigList(url.hostname, cleanDomainIPs, startNo, maxBuiltInConfigsPerType, env);
+    vlConfigList = await GetVLConfigList(url.hostname, cleanDomainIPs, startNo, maxBuiltInConfigsPerType, env);
     startNo += maxBuiltInConfigsPerType;
   }
   if (protocols.includes("built-in-trojan")) {
-    CTLeeConfigList = await GetCTLeeConfigList(url.hostname, cleanDomainIPs, startNo, maxBuiltInConfigsPerType, env);
+    trConfigList = await GetTRConfigList(url.hostname, cleanDomainIPs, startNo, maxBuiltInConfigsPerType, env);
     startNo += maxBuiltInConfigsPerType;
   }
-  finalConfigList = CVLeeConfigList.concat(CTLeeConfigList).concat(AddNumberToConfigs(finalConfigList, startNo));
+  finalConfigList = vlConfigList.concat(trConfigList).concat(AddNumberToConfigs(finalConfigList, startNo));
   finalConfigList = finalConfigList.map((conf) => {
     conf.fp = fingerPrints[Math.floor(Math.random() * fingerPrints.length)];
     conf.alpn = alpnList[Math.floor(Math.random() * alpnList.length)];
@@ -9452,9 +9452,9 @@ var worker_default = {
         return new Response(ToBase64Subscription(configList));
       }
     } else if (lcPath == "vless-ws") {
-      return CVLeeOverWSHandler(request, url.hostname, env);
-    } else if (lcPath == "trojan-ws") {
-      return CTLeeOverWSHandler(request, url.hostname, env);
+      return VLOverWSHandler(request, url.hostname, env);
+    } else if (lcPath == "-ws") {
+      return TROverWSHandler(request, url.hostname, env);
     } else if (lcPath == "login") {
       if (request.method === "GET") {
         return GetLogin(request, env);
@@ -9499,7 +9499,6 @@ buffer/index.js:
 js-yaml/dist/js-yaml.mjs:
   (*! js-yaml 4.1.0 https://github.com/nodeca/js-yaml @license MIT *)
 */
-//# sourceMappingURL=worker.js.map
 
-// vFarid EN Version : 1.0.0
+// vFarid EN Version : 1.0.1
 // GitHub : https://github.com/iErfun/vFarid-EN
