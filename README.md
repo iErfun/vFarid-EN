@@ -4,7 +4,7 @@
 
 ارور 1101 کلادفلر برطرف شده
 
-دستورات VLESS و Trojan به CVLee و CTLee تغییر داده شده مثل پنل [BPB-Panel EN](https://github.com/iErfun/BPB-Panel-EN)
+دستورات VLESS و Trojan به VL و TR تغییر داده شده
 
 ## 📜 توضیحات
 
